@@ -25,7 +25,8 @@
     "mqtt": ">=2.16.0",
     "loglevel": ">=1.6.0",
     "loglevel-plugin-prefix": ">=0.8.3",
-    "chalk": ">=2.3.0"
+    "chalk": ">=2.3.0",
+    "command-line-args": ">=5.0.2"
   },
   "author": "cflurin",
   "bugs": {

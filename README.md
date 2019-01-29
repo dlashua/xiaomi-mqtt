@@ -86,8 +86,9 @@ By default the gateway send heartbeat every 10s which can do some pollution when
 
 ### Usage (global installation)
 
-Use `xiaomi-mqtt` or `xm` to run xiaomi-mqtt.<br>
+Use `xiaomi-mqtt [--config /etc/xiaomi-mqtt.json]` or `xm` to run xiaomi-mqtt.<br>
 Use `ctrl c` to stop xiaomi-mqtt.
+
 
 ### Usage (local installation)
 

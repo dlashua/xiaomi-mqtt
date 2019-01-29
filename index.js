@@ -7,6 +7,9 @@ var Utils = require('./lib/utils.js').Utils;
 var log = require('loglevel');
 const crypto = require('crypto');
 
+const commandLineArgs = require('command-line-args');
+const options = commandLineArgs({ name: 'config', type: String, defaultValue: "config.json"});
+
 var sidAddress = {};
 var sidPort = {};
 var sidGateway = {};
@@ -17,7 +20,9 @@ var gateway_sid; // todo: multliple gateway
 const IV = Buffer.from([0x17, 0x99, 0x6d, 0x09, 0x3d, 0x28, 0xdd, 0xb3, 0xba, 0x69, 0x5a, 0x2e, 0x6f, 0x58, 0x56, 0x2e]);
 const package_name = Utils.read_packageName();
 const package_version = Utils.read_packageVersion();
-const config = Utils.loadConfig("config.json");
+
+// you can override config location by passing it as command-line parameter, i.e "node index.js /etc/xiaomi-mqtt/config.json"
+const config = Utils.loadConfig( options["config"], process.argv);
 
 var serverPort = config.xiaomi.serverPort || 9898;
 var multicastAddress = config.xiaomi.multicastAddress || '224.0.0.50';
