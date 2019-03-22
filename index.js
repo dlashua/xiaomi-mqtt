@@ -9,6 +9,7 @@ const crypto = require('crypto');
 
 var sidAddress = {};
 var sidPort = {};
+var sidGateway = {};
 var token = {};
 var payload = {};
 var gateway_sid; // todo: multliple gateway
@@ -21,7 +22,7 @@ const config = Utils.loadConfig("config.json");
 var serverPort = config.xiaomi.serverPort || 9898;
 var multicastAddress = config.xiaomi.multicastAddress || '224.0.0.50';
 var multicastPort =  config.xiaomi.multicastPort || 4321;
-var password = config.xiaomi.password || "";
+var password = config.xiaomi.password || {};
 var level = config.loglevel || "info";
 var heartbeatfreq = config.heartbeatfreq || 1;
 var dataFormat = config.dataFormat || "parsed"
@@ -41,6 +42,8 @@ var params = {
   "write": write,
   "log": log
 }
+
+var pollingTimers = {};
 
 var mqtt = new Mqtt(params);
 mqtt.connect();
@@ -73,7 +76,7 @@ server.on('message', function(buffer, rinfo) {
       var sid = msg.sid;
       sidAddress[sid] = msg.ip;
       sidPort[sid] = msg.port;
-      gateway_sid = msg.sid;
+      sidGateway[sid] = msg.sid;
       log.info("Gateway sid "+msg.sid+" Address "+sidAddress[sid]+", Port "+sidPort[sid]);
       get_id_list(sid);
       break;
@@ -84,27 +87,65 @@ server.on('message', function(buffer, rinfo) {
         sid = data[index];
         sidAddress[sid] = rinfo.address;
         sidPort[sid] = rinfo.port;
+        sidGateway[sid] = msg.sid;
+        read(sid);
       }
       log.trace(JSON.stringify(sidAddress)+ " "+JSON.stringify(sidPort))
       payload = {"cmd":msg.cmd, "sid":msg.sid, "data":JSON.parse(msg.data)};
       log.debug(JSON.stringify(payload));
       mqtt.publish(payload);
       break;
+    case "write_ack":
     case "read_ack":
     case "report":
+      if(! msg.sid in sidPort) {
+        read(msg.sid);
+      }
       var data = JSON.parse(msg.data);
       switch (msg.model) {
+        case "weather.v1":
         case "sensor_ht":
           if (dataFormat === "parsed") {
             data.temperature = data.temperature ? data.temperature / 100 : null;
             data.humidity = data.humidity ? data.humidity / 100: null;
           }
-          payload = {"cmd":msg.cmd ,"model":msg.model, "sid":msg.sid, "short_id":msg.short_id, "data": data};
           log.debug(JSON.stringify(payload));
           break;
         case "gateway":
+          if (dataFormat === "parsed") {
+            if(data.rgb) {
+              data.rgb = data.rgb.toString(16);
+            }
+          }
+          break;
         case "motion":
         case "sensor_motion.aq2":
+          if (dataFormat === "parsed") {
+
+            if (data.status === "motion") {
+              data.motion = "on";
+              data.no_motion = "0";
+              // if(pollingTimers[msg.sid]) {
+              //   clearInterval(pollingTimers[msg.sid]);
+              // }
+              // var tempFunc = function(sid) {
+              //   return function() {
+              //     read(sid);
+              //   }
+              // }
+              // pollingTimers[msg.sid] = setInterval(read,10000,msg.sid);
+            }
+
+            if(data.no_motion && data.no_motion !== "0") {
+              data.motion = "off";
+              // if(pollingTimers[msg.sid]) {
+              //   clearInterval(pollingTimers[msg.sid]);
+              //   pollingTimers[msg.sid] = false;
+              // }
+
+            }
+          }
+          break;
         case "sensor_wleak.aq1":
         case "magnet":
         case "switch":
@@ -114,17 +155,10 @@ server.on('message', function(buffer, rinfo) {
         case "ctrl_neutral1":
         case "ctrl_neutral2":
         case "ctrl_ln1.aq1":
-          payload = {"cmd":msg.cmd ,"model":msg.model, "sid":msg.sid, "short_id":msg.short_id, "data": data};
-          log.debug(JSON.stringify(payload));
-          break;
+        case "vibration":
         default:
-          payload = {"cmd":msg.cmd ,"model":msg.model, "sid":msg.sid, "short_id":msg.short_id, "data": data};
-          log.debug("untested "+JSON.stringify(payload));
+          log.debug("untested " + JSON.stringify(msg));
       }
-      mqtt.publish(payload);
-      break;
-    case "write_ack":
-      var data = JSON.parse(msg.data);
       payload = {"cmd":msg.cmd ,"model":msg.model, "sid":msg.sid, "short_id":msg.short_id, "data": data};
       log.debug(JSON.stringify(payload));
       mqtt.publish(payload);
@@ -198,8 +232,18 @@ function write(mqtt_payload) {
   var sid = payload.sid;
 
   if (sid in sidPort) {
+    var gateway_sid = sidGateway[sid];
     try {
-      var cipher = crypto.createCipheriv('aes-128-cbc', password, IV);
+      if(gateway_sid in password) {
+        var sidPassword = password[gateway_sid];
+        var cipher = crypto.createCipheriv('aes-128-cbc', sidPassword, IV);
+        log.debug("SID: %s, PASSWORD: %s, GATEWAY: %s, ADDRESS: %s, PORT: %s",sid,sidPassword,sidGateway[sid],sidAddress[sid],sidPort[sid]);
+      } else {
+        payload = {"cmd":"xm","msg":"Password Unknown for "+JSON.stringify(sid)+", check the password in config.json."};
+        log.error(JSON.stringify(payload));
+        mqtt.publish(payload);
+        return;
+      }
     } catch (e) {
       payload = {"cmd":"xm","msg":"Cipher "+JSON.stringify(cipher)+", check the password in config.json."};
       log.error(JSON.stringify(payload));
@@ -228,7 +272,7 @@ function write(mqtt_payload) {
       mqtt.publish(payload);
     }
   } else {
-    payload = {"cmd":"xm","msg":"sid >"+sid+"< unknown."};
+    payload = {"cmd":"xm","msg":"sid >"+sid+"< unknown. AR20."};
     log.warn(JSON.stringify(payload));
     mqtt.publish(payload);
   }
