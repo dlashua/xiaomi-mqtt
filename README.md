@@ -1,5 +1,7 @@
 # xiaomi-mqtt
 
+# DOCUMENTATION IS AS-IS FROM FORK
+
 [![NPM version][npm-image]][npm-url]
 
 [npm-image]: http://img.shields.io/npm/v/xiaomi-mqtt.svg
