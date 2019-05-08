@@ -48,7 +48,7 @@ var params = {
   "log": log
 }
 
-var pollingTimers = {};
+var heartbeatTimers = {};
 
 var mqtt = new Mqtt(params);
 mqtt.connect();
@@ -75,6 +75,12 @@ server.on('message', function(buffer, rinfo) {
     return;
   }
 
+  if(msg.data) {
+    var data = JSON.parse(msg.data);
+  } else {
+    var data = {};
+  }
+
   switch (msg.cmd) {
     case "iam":
       log.trace("msg "+JSON.stringify(msg));
@@ -86,7 +92,6 @@ server.on('message', function(buffer, rinfo) {
       get_id_list(sid);
       break;
     case "get_id_list_ack":
-      var data = JSON.parse(msg.data);
       var sid;
       for(var index in data) {
         sid = data[index];
@@ -100,13 +105,27 @@ server.on('message', function(buffer, rinfo) {
       log.debug(JSON.stringify(payload));
       mqtt.publish(payload);
       break;
+    case "heartbeat":
     case "write_ack":
     case "read_ack":
     case "report":
       if(! msg.sid in sidPort) {
         read(msg.sid);
       }
-      var data = JSON.parse(msg.data);
+
+      var makeDead = function(msg) {
+        return function() {
+          var deadPayload = {cmd:"_makeDead", model: msg.model, sid:msg.sid, "short_id":msg.short_id, data:{dead:"on"}};
+          mqtt.publish(deadPayload);
+          delete heartbeatTimers[msg.sid];
+        }
+      }
+      if(msg.sid in heartbeatTimers) {
+        clearTimeout(heartbeatTimers[msg.sid]);
+      }
+      heartbeatTimers[msg.sid] = setTimeout(makeDead(msg),80 * 60 * 1000); // 80 minutes since devices report hourly
+      data.dead = "off";
+
       switch (msg.model) {
         case "weather.v1":
         case "sensor_ht":
@@ -121,6 +140,9 @@ server.on('message', function(buffer, rinfo) {
             if(data.rgb) {
               data.rgb = data.rgb.toString(16);
             }
+          }
+          if (msg.model === "gateway" && msg.token) {
+            token[msg.sid] = msg.token;
           }
           break;
         case "motion":
@@ -161,30 +183,31 @@ server.on('message', function(buffer, rinfo) {
         case "ctrl_neutral2":
         case "ctrl_ln1.aq1":
         case "vibration":
+          break;
         default:
-          log.debug("untested " + JSON.stringify(msg));
+          log.warn("UNKNOWN MODEL " + JSON.stringify(msg));
       }
       payload = {"cmd":msg.cmd ,"model":msg.model, "sid":msg.sid, "short_id":msg.short_id, "data": data};
       log.debug(JSON.stringify(payload));
       mqtt.publish(payload);
       break;
-    case "heartbeat":
-      var data = JSON.parse(msg.data);
-      if (msg.model === "gateway") {
-        token[msg.sid] = msg.token;
-        if (hb_count > 0) {
-          hb_count = hb_count - 1;
-          //log.info("heartbeat not published, "+hb_count+" before next publish");
-        } else {
-          // reset counter, if this is done, it's time to publish this one
-          hb_count = heartbeatfreq;
-        }
-      }
-      payload = {"cmd":msg.cmd ,"model":msg.model, "sid":msg.sid, "short_id":msg.short_id, "token":msg.token, "data": data};
-      if (msg.model !== "gateway" || hb_count===heartbeatfreq ) {
-        mqtt.publish(payload);
-      }
-      break;
+    // case "heartbeat":
+    //   var data = JSON.parse(msg.data);
+    //   if (msg.model === "gateway") {
+    //     token[msg.sid] = msg.token;
+    //     if (hb_count > 0) {
+    //       hb_count = hb_count - 1;
+    //       //log.info("heartbeat not published, "+hb_count+" before next publish");
+    //     } else {
+    //       // reset counter, if this is done, it's time to publish this one
+    //       hb_count = heartbeatfreq;
+    //     }
+    //   }
+    //   payload = {"cmd":msg.cmd ,"model":msg.model, "sid":msg.sid, "short_id":msg.short_id, "token":msg.token, "data": data};
+    //   if (msg.model !== "gateway" || hb_count===heartbeatfreq ) {
+    //     mqtt.publish(payload);
+    //   }
+    //   break;
     default:
       log.warn("unknown msg "+JSON.stringify(msg)+" from client "+rinfo.address+":"+rinfo.port);
   }
